@@ -4,19 +4,12 @@ from nodes import (
     classify_intent_node,
     clarify_node,
     escalate_node,
-    generate_reply_node,
-    detect_language_node
+    generate_reply_node
 )
 
 ALWAYS_ESCALATE_NO_REPLY = {"ACCOUNT_ACCESS"}
 
 ESCALATE_AFTER_REPLY = {"REFUND_AND_RETURN", "WRONG_DAMAGED_ITEM"}
-
-def route_after_language(state: AgentState) -> str:
-    lang = state.get("detected_language")
-    if lang != "en":
-        return "escalate"
-    return "classify_intent"
 
 def route_after_classification(state: AgentState) -> str:
     intent = state.get("intent")
@@ -43,19 +36,11 @@ def route_after_reply(state: AgentState) -> str:
 
 workflow = StateGraph(AgentState)
 
-workflow.add_node("detect_language", detect_language_node) 
 workflow.add_node("classify_intent", classify_intent_node)
 workflow.add_node("clarify", clarify_node)
 workflow.add_node("escalate", escalate_node)
 workflow.add_node("generate_reply", generate_reply_node)
 
-workflow.add_edge(START, "detect_language")
-
-workflow.add_conditional_edges(
-    "detect_language",
-    route_after_language,
-    {"escalate": "escalate", "classify_intent": "classify_intent"}
-)
 
 workflow.add_conditional_edges(
     "classify_intent",
@@ -72,6 +57,7 @@ workflow.add_conditional_edges(
     }
 )
 
+workflow.add_edge(START, "classify_intent")
 workflow.add_edge("clarify", END)
 workflow.add_edge("escalate", END)
 

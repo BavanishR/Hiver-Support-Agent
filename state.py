@@ -9,4 +9,3 @@ class AgentState(TypedDict):
     clarify_count: int
     status: str  
     escalation_reason: str
-    detected_language: str

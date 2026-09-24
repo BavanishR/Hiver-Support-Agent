@@ -9,7 +9,6 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from schemas import IntentResult
 from state import AgentState
-from langdetect import detect, LangDetectException
 
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
@@ -27,6 +26,8 @@ SYSTEM_PROMPT = """You are an intent classification agent for Amazon customer su
 Analyze the customer's message and categorize it into EXACTLY one of the allowed intents.
 Also rate your confidence from 0.0 to 1.0.
 
+If the customer's message is NOT written in English, set intent to "UNCLEAR_VAGUE" and confidence to 0.3, regardless of how clear the message seems in its own language.
+
 Allowed Intents:
 - DELIVERY_DELAY: Delayed packages, late shipments, missing deliveries.
 - REFUND_AND_RETURN: Refund status, returns, double charges.
@@ -34,20 +35,8 @@ Allowed Intents:
 - ORDER_STATUS: Tracking order updates, dispatch confirmation.
 - WRONG_DAMAGED_ITEM: Received broken, defective, or incorrect items.
 - ACCOUNT_ACCESS: Login issues, OTPs, password resets.
-- UNCLEAR_VAGUE: Incomplete info, vague complaints, or plain venting without details.
+- UNCLEAR_VAGUE: Incomplete info, vague complaints, plain venting without details, or non-English messages.
 """
-
-def detect_language_node(state: AgentState):
-    latest_message = state["messages"][-1].content
-
-    if len(latest_message) < 10:
-        return {"detected_language": "en"} 
-    
-    try:
-        lang = detect(latest_message)
-    except LangDetectException:
-        lang = "unknown"
-    return {"detected_language": lang}
 
 def classify_intent_node(state: AgentState):
     latest_message = state["messages"][-1].content
@@ -81,14 +70,9 @@ def clarify_node(state: AgentState):
 def escalate_node(state: AgentState):
     intent = state.get("intent")
     clarify_count = state.get("clarify_count", 0)
-    detected_language = state.get("detected_language")
     already_replied = state.get("status") == "auto_handled"
 
-    if detected_language and detected_language != "en":
-        reason = (f"Message detected as non-English ('{detected_language}'). "
-                  f"Our retrieval knowledge base is English-only, so replies "
-                  f"can't be reliably grounded — needs a human or native-language agent.")
-    elif intent == "ACCOUNT_ACCESS":
+    if intent == "ACCOUNT_ACCESS":
         reason = "Account access issues require identity verification, which cannot be completed via Twitter."
     elif intent in {"REFUND_AND_RETURN", "WRONG_DAMAGED_ITEM"}:
         reason = f"{intent} requires order/account-level action a support bot cannot perform on Twitter."
