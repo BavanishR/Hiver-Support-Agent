@@ -22,6 +22,16 @@ embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 vector_store = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
 retriever = vector_store.as_retriever(search_kwargs={"k": 2})
 
+cache_store = Chroma(
+    collection_name="intent_cache",
+    persist_directory="./chroma_cache",
+    embedding_function=embeddings,
+    collection_metadata={"hnsw:space": "cosine"},
+)
+CACHE_DISTANCE_THRESHOLD = 0.08
+CACHE_MIN_CONFIDENCE = 0.85
+CACHE_MIN_CHARS = 25
+
 SYSTEM_PROMPT = """You are an intent classification agent for Amazon customer support on Twitter.
 Analyze the customer's message and categorize it into EXACTLY one of the allowed intents.
 Also rate your confidence from 0.0 to 1.0.
@@ -40,15 +50,28 @@ Allowed Intents:
 
 def classify_intent_node(state: AgentState):
     latest_message = state["messages"][-1].content
-    
+
+    hits = cache_store.similarity_search_with_score(latest_message, k=1)
+    if hits and hits[0][1] <= CACHE_DISTANCE_THRESHOLD:
+        meta = hits[0][0].metadata
+        print(f"[cache hit] distance={hits[0][1]:.3f}")
+        return {"intent": meta["intent"], "confidence_score": meta["confidence"]}
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
         ("user", "{input}")
     ])
-    
     chain = prompt | structured_llm
     result: IntentResult = chain.invoke({"input": latest_message})
-    
+
+    if (result.confidence_score >= CACHE_MIN_CONFIDENCE
+            and result.intent != "UNCLEAR_VAGUE"
+            and len(latest_message) >= CACHE_MIN_CHARS):
+        cache_store.add_texts(
+            [latest_message],
+            metadatas=[{"intent": result.intent, "confidence": result.confidence_score}],
+        )
+
     return {
         "intent": result.intent,
         "confidence_score": result.confidence_score

@@ -9,3 +9,5 @@ chroma_db/
 Dataset/twcs.csv
 
 .ipynb_checkpoints/
+
+chroma_cache/
